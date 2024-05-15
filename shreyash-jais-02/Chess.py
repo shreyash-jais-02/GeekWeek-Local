@@ -1,5 +1,107 @@
 """
 import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.utils import resample
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Dense, Lambda, Layer, Add, Multiply
+from tensorflow.keras.models import Model
+from tensorflow.keras import backend as K
+from tensorflow.keras.losses import mse, binary_crossentropy
+
+# Load your binary classification dataset
+data = pd.read_csv("your_dataset.csv")
+
+# Separate data into features and target variable
+X = data.drop("Lmao", axis=1)
+y = data["Lmao"]
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Filter out the part of the data where Lmao=1
+lmao_1_data = data[data["Lmao"] == 1].reset_index(drop=True)
+
+# Oversample the lmao=1 data to size 10000 using VAE
+# Define the VAE model architecture
+latent_dim = 2  # You can adjust this based on your dataset
+input_dim = X.shape[1]
+
+# Encoder
+inputs = Input(shape=(input_dim,), name='encoder_input')
+x = Dense(128, activation='relu')(inputs)
+z_mean = Dense(latent_dim, name='z_mean')(x)
+z_log_var = Dense(latent_dim, name='z_log_var')(x)
+
+# Reparameterization trick
+def sampling(args):
+    z_mean, z_log_var = args
+    batch = K.shape(z_mean)[0]
+    dim = K.int_shape(z_mean)[1]
+    epsilon = K.random_normal(shape=(batch, dim))
+    return z_mean + K.exp(0.5 * z_log_var) * epsilon
+
+z = Lambda(sampling, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
+
+# Decoder
+decoder_h = Dense(128, activation='relu')
+decoder_mean = Dense(input_dim, activation='sigmoid')
+h_decoded = decoder_h(z)
+x_decoded_mean = decoder_mean(h_decoded)
+
+# Full VAE model
+vae = Model(inputs, x_decoded_mean)
+
+# Define VAE loss
+reconstruction_loss = binary_crossentropy(inputs, x_decoded_mean)
+reconstruction_loss *= input_dim
+kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+kl_loss = K.sum(kl_loss, axis=-1)
+kl_loss *= -0.5
+vae_loss = K.mean(reconstruction_loss + kl_loss)
+vae.add_loss(vae_loss)
+
+# Compile VAE model
+vae.compile(optimizer='adam')
+
+# Train VAE model on lmao=1 data to generate synthetic data
+vae.fit(lmao_1_data.drop("Lmao", axis=1), lmao_1_data.drop("Lmao", axis=1),
+        epochs=10,
+        batch_size=32,
+        shuffle=True)
+
+# Generate synthetic data using VAE
+synthetic_data = vae.predict(lmao_1_data.drop("Lmao", axis=1))
+
+# Convert synthetic data to DataFrame
+synthetic_df = pd.DataFrame(synthetic_data, columns=lmao_1_data.drop("Lmao", axis=1).columns)
+
+# Oversample synthetic data to size 10000
+oversampled_synthetic_df = resample(synthetic_df, n_samples=10000, replace=True, random_state=42)
+
+# Join original data with oversampled synthetic data
+oversampled_data = pd.concat([data, oversampled_synthetic_df], ignore_index=True)
+
+# Separate features and target variable in oversampled data
+X_oversampled = oversampled_data.drop("Lmao", axis=1)
+y_oversampled = oversampled_data["Lmao"]
+
+# Train Random Forest classifier
+rf_classifier = RandomForestClassifier()
+rf_classifier.fit(X_oversampled, y_oversampled)
+
+# Evaluate Random Forest classifier
+y_pred = rf_classifier.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+print("Random Forest Classifier Accuracy:", accuracy)
+
+"""
+
+
+"""
+import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
